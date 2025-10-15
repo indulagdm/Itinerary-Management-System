@@ -1,9 +1,26 @@
 import Package from "../models/packageModel.js";
 import TourPlan from "../models/tourPlanModel.js";
+import { app } from 'electron'
+import path from 'path'
+import fs from 'fs/promises'
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+
+const __dirname = path.dirname(__filename);
+
+const isPackaged = app.isPackaged;
+const UPLOAD_DIR = isPackaged
+  ? path.join(process.resourcesPath, "uploads")
+  : path.join(__dirname, "uploads");
 
 export const createTourPlan = async (formData) => {
   try {
-    const { package_id, day, destination } = formData;
+    const { package_id, day, destination, imagePaths } = formData;
+
+    if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
+
+    let savedPaths = [];
 
     let convertedItemID = package_id;
 
@@ -47,10 +64,20 @@ export const createTourPlan = async (formData) => {
       throw new Error("Package ID is not found.");
     }
 
+    for (const imagePath of imagePaths) {
+      const filename = Date.now() + "-" + path.basename(imagePath);
+      const dest = path.join(UPLOAD_DIR, filename);
+
+      // Copy file to local uploads directory
+      fs.copyFileSync(imagePath, dest);
+      savedPaths.push(dest);
+    }
+
     const newTourPlan = new TourPlan({
       package_id: package_id,
       day: day,
       destination: destination,
+      imagePaths: savedPaths
     });
 
     if (!newTourPlan) {
@@ -131,6 +158,7 @@ export const getTourPlan = async (package_id) => {
       tourPlanWithStringId = tourPlans.map((tourPlan) => ({
         ...tourPlan,
         _id: tourPlan._id.toString(),
+        imagePaths: tourPlan.imagePaths.map((image) => `file://${image}`)
       }));
     } else {
       throw new Error("No tour plan added.");
@@ -158,6 +186,7 @@ export const getTourPlans = async () => {
       tourPlanWithStringId = tourPlans.map((tourPlan) => ({
         ...tourPlan,
         _id: tourPlan._id.toString(),
+        imagePaths: tourPlan.imagePaths.map((image) => `file://${image}`)
       }));
     } else {
       throw new Error("No tour plan found.");
@@ -176,7 +205,9 @@ export const getTourPlans = async () => {
 
 export const updateTourPlan = async (tour_plan_id, formData) => {
   try {
-    const { package_id, day, destination } = formData;
+    const { package_id, day, destination, newImagePaths, oldImagePaths = true } = formData;
+
+    let updatedImagePaths = [];
 
     let convertedItemID = tour_plan_id;
 
@@ -227,6 +258,24 @@ export const updateTourPlan = async (tour_plan_id, formData) => {
 
     const tourPlanID = await TourPlan.findOne({ _id: convertedItemID });
 
+    if (keepOldImages && Array.isArray(tourPlanID.imagePaths)) {
+      updatedImagePaths = [...tourPlanID.imagePaths];
+    } else {
+      // if not keeping old, delete them
+      for (const img of tourPlanID.imagePaths) {
+        if (fs.existsSync(img)) fs.unlinkSync(img);
+      }
+    }
+
+    if (Array.isArray(newImagePaths)) {
+      for (const imagePath of newImagePaths) {
+        const filename = Date.now() + "-" + path.basename(imagePath);
+        const dest = path.join(UPLOAD_DIR, filename);
+        fs.copyFileSync(imagePath, dest);
+        updatedImagePaths.push(dest);
+      }
+    }
+
     if (!tourPlanID) {
       throw new Error("Tour plan not found.");
     }
@@ -245,6 +294,7 @@ export const updateTourPlan = async (tour_plan_id, formData) => {
         package_id: package_id,
         day: day,
         destination: destination,
+        imagePaths: updatedImagePaths
       },
       {
         new: true,

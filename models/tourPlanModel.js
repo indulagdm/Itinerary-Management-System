@@ -15,6 +15,9 @@ const tourPlanSchema = new mongoose.Schema(
       type: String,
       required: [true, "Destination is required."],
     },
+    imagePaths: {
+      type: [String],
+    }
   },
   {
     timestamps: true,
